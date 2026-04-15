@@ -36,53 +36,148 @@
 会透过软链落到共享文件上，其他用户下次读文件就自然拿到新 token —— 不需要任何
 后台进程。
 
-## 安装
+## 快速上手
+
+从一台干净的机器开始，一步步走到多用户共享完成，不省略任何步骤。
+
+### 第 0 步 —— 准备工作
+
+1. 你是 `root`，或者有 `sudo` 权限。
+2. Claude Code 已经装在这台机器上，能直接跑 `claude`。
+3. **源用户**（用来提供共享鉴权的账号，通常是 `root`）**至少登录过一次 Claude**，
+   所以 `~/.claude/.credentials.json` 已经存在。
+
+检查源用户的鉴权文件是否就绪：
+
+```bash
+sudo ls -l /root/.claude/.credentials.json
+```
+
+如果**不存在**，先 `/login` 一次：
+
+```bash
+sudo -iu root
+claude /login    # 在浏览器走一次 OAuth 流程
+exit
+```
+
+### 第 1 步 —— 拉代码
 
 ```bash
 git clone https://github.com/<owner>/claude-share.git
 cd claude-share
-sudo ./install.sh
 ```
 
-发布后也可以用：
+发布后的一行等价写法：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/<owner>/claude-share/main/install.sh \
   | sudo bash
 ```
 
-## 快速上手
+### 第 2 步 —— 安装 CLI
 
 ```bash
-# 1. 作为源用户先 /login 一次（如果之前没做过）
-sudo -iu root
-claude /login    # 走一遍 OAuth 流程
-exit
+sudo ./install.sh
+which claude-share     # 期望: /usr/local/bin/claude-share
+claude-share version   # 期望: claude-share 0.1.0
+```
 
-# 2. 初始化：创建用户并接入共享鉴权
+`install.sh` 做的事：把 `bin/ lib/ commands/` 拷到 `/usr/local/lib/claude-share/`，
+再把入口软链到 `/usr/local/bin/claude-share`。这步跑完之后，你 clone 的源码
+目录跟运行时副本就**解绑**了 —— 改了源码想生效必须再跑一次 `install.sh`。
+
+如果你不想做全局安装，下面所有 `claude-share ...` 命令都可以改成
+`sudo /path/to/claude-share/bin/claude-share ...` 直接用源码树。
+
+### 第 3 步 —— 初始化
+
+```bash
 sudo claude-share init
-# [claude-share] Shared directory [/shared/claude-share]:
-# [claude-share] Shared group [claudeshare]:
-# [claude-share] How many users to create now? [2]:
-#   user 1 name: usera
-#   user 1 password: ********
-#   Confirm user 1 password: ********
-#   user 2 name: userb
-#   user 2 password: ********
-#   Confirm user 2 password: ********
-# [claude-share] ✓ Created group: claudeshare
-# [claude-share] ✓ Created user: usera
-# [claude-share] ✓ Created user: userb
-# [claude-share] ✓ Linked usera to shared auth
-# [claude-share] ✓ Linked userb to shared auth
-# [claude-share] Done. Managed users: usera userb
+```
 
-# 3. 查看状态
+会依次提示（中括号是默认值，直接回车接受）：
+
+- **Shared directory** `[/shared/claude-share]` —— 共享鉴权的真身存放目录。
+- **Shared group** `[claudeshare]` —— 所有受管用户加入的 POSIX 组名。
+- **Source user** `[root]` —— 谁的 `~/.claude/.credentials.json` 作为初始真相源。
+- **How many users to create now?** `[2]` —— 要建几个用户。
+- 然后对每个用户依次问：**用户名**、**密码**（隐藏输入，确认两次）。
+
+期望的输出：
+
+```text
+[claude-share] Shared directory [/shared/claude-share]:
+[claude-share] Shared group [claudeshare]:
+[claude-share] Source user (holds current ~/.claude auth) [root]:
+[claude-share] How many users to create now? [2]:
+  user 1 name: usera
+  user 1 password: ********
+  Confirm user 1 password: ********
+  user 2 name: userb
+  user 2 password: ********
+  Confirm user 2 password: ********
+[claude-share] Creating shared group and directory...
+[claude-share] ✓ Created group: claudeshare
+[claude-share] ✓ Added root to group claudeshare
+[claude-share] ✓ Shared dir ready: /shared/claude-share
+[claude-share] ✓ Created user: usera
+[claude-share] ✓ Set password for usera
+[claude-share] ✓ Added usera to group claudeshare
+[claude-share] ✓ Linked usera to shared auth
+[claude-share] ✓ Created user: userb
+[claude-share] ✓ Set password for userb
+[claude-share] ✓ Added userb to group claudeshare
+[claude-share] ✓ Linked userb to shared auth
+[claude-share] ✓ Wrote config: /etc/claude-share/config
+[claude-share] Done. Managed users: usera userb
+```
+
+### 第 4 步 —— 核对健康状态
+
+```bash
 sudo claude-share status
+```
 
-# 4. 两个用户都可以直接跑 claude，不用再 /login
+"Per-user links" 下每一行都应该是 `✓`：
+
+```text
+[claude-share] Per-user links
+  user: usera
+    group claudeshare: ✓
+    ✓ .claude/.credentials.json
+    ✓ .claude.json
+    ✓ .claude/settings.json
+    ✓ .claude/settings.local.json
+  user: userb
+    group claudeshare: ✓
+    ✓ .claude/.credentials.json
+    ✓ .claude.json
+    ✓ .claude/settings.json
+    ✓ .claude/settings.local.json
+```
+
+有 `✗` 的话，跑一次 `sudo claude-share sync` 再核一遍。
+
+### 第 5 步 —— 以两个用户的身份跑 claude
+
+```bash
 su - usera -c 'claude --help'
 su - userb -c 'claude --help'
+```
+
+两个都不应该再要求 `/login` —— 他们通过软链透明读到了共享凭证。
+
+### 第 6 步 —— （可选）后续加人
+
+```bash
+sudo claude-share add-user charlie   # 交互式输密码
+```
+
+或者非交互：
+
+```bash
+sudo claude-share add-user charlie --password 'charlie1234'
 ```
 
 ## 子命令一览

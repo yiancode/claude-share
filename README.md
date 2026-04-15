@@ -41,53 +41,156 @@ each managed user's `$HOME/<relpath>` is a symlink to that single copy. When
 Claude refreshes the OAuth token it writes the new value through the symlink,
 so all users stay in sync with zero extra processes.
 
-## Install
+## Quick start
+
+The full walkthrough from a fresh machine to a working multi-user setup.
+
+### Step 0 — Prerequisites
+
+1. You are `root`, or have `sudo`.
+2. Claude Code is already installed on the machine and runnable as `claude`.
+3. The **source user** (the account whose auth will be shared, usually `root`)
+   has logged in to Claude at least once, so
+   `~/.claude/.credentials.json` exists.
+
+Check the source user's auth file:
+
+```bash
+sudo ls -l /root/.claude/.credentials.json
+```
+
+If it **does not** exist, run `/login` once first:
+
+```bash
+sudo -iu root
+claude /login    # go through the OAuth flow in your browser
+exit
+```
+
+### Step 1 — Get the code
 
 ```bash
 git clone https://github.com/<owner>/claude-share.git
 cd claude-share
-sudo ./install.sh
 ```
 
-Or, after publishing:
+After publishing, the one-liner equivalent is:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/<owner>/claude-share/main/install.sh \
   | sudo bash
 ```
 
-## Quick start
+### Step 2 — Install the CLI
 
 ```bash
-# 1. Log in once as the source user (only needed if you haven't already)
-sudo -iu root
-claude /login    # go through the OAuth flow
-exit
+sudo ./install.sh
+which claude-share     # expect: /usr/local/bin/claude-share
+claude-share version   # expect: claude-share 0.1.0
+```
 
-# 2. Initialize: create users and wire up the shared auth
+`install.sh` copies `bin/ lib/ commands/` into `/usr/local/lib/claude-share/`
+and symlinks the entry point to `/usr/local/bin/claude-share`. After this,
+the source tree you cloned is no longer required at runtime — editing files
+in the clone will **not** affect the installed copy until you re-run
+`install.sh`.
+
+If you would rather not install and just use the scripts in-place, every
+`claude-share ...` command below can be replaced with
+`sudo /path/to/claude-share/bin/claude-share ...`.
+
+### Step 3 — Initialize
+
+```bash
 sudo claude-share init
-# [claude-share] Shared directory [/shared/claude-share]:
-# [claude-share] Shared group [claudeshare]:
-# [claude-share] How many users to create now? [2]:
-#   user 1 name: usera
-#   user 1 password: ********
-#   Confirm user 1 password: ********
-#   user 2 name: userb
-#   user 2 password: ********
-#   Confirm user 2 password: ********
-# [claude-share] ✓ Created group: claudeshare
-# [claude-share] ✓ Created user: usera
-# [claude-share] ✓ Created user: userb
-# [claude-share] ✓ Linked usera to shared auth
-# [claude-share] ✓ Linked userb to shared auth
-# [claude-share] Done. Managed users: usera userb
+```
 
-# 3. Verify
+You will be prompted for (defaults in brackets; press Enter to accept):
+
+- **Shared directory** `[/shared/claude-share]` — where the single canonical
+  copy of shared auth will live.
+- **Shared group** `[claudeshare]` — the POSIX group every managed user
+  joins.
+- **Source user** `[root]` — whose `~/.claude/.credentials.json` is copied
+  in as the initial truth source.
+- **How many users to create now?** `[2]`
+- For each user: **name**, then **password** (hidden, confirmed twice).
+
+Expected output:
+
+```text
+[claude-share] Shared directory [/shared/claude-share]:
+[claude-share] Shared group [claudeshare]:
+[claude-share] Source user (holds current ~/.claude auth) [root]:
+[claude-share] How many users to create now? [2]:
+  user 1 name: usera
+  user 1 password: ********
+  Confirm user 1 password: ********
+  user 2 name: userb
+  user 2 password: ********
+  Confirm user 2 password: ********
+[claude-share] Creating shared group and directory...
+[claude-share] ✓ Created group: claudeshare
+[claude-share] ✓ Added root to group claudeshare
+[claude-share] ✓ Shared dir ready: /shared/claude-share
+[claude-share] ✓ Created user: usera
+[claude-share] ✓ Set password for usera
+[claude-share] ✓ Added usera to group claudeshare
+[claude-share] ✓ Linked usera to shared auth
+[claude-share] ✓ Created user: userb
+[claude-share] ✓ Set password for userb
+[claude-share] ✓ Added userb to group claudeshare
+[claude-share] ✓ Linked userb to shared auth
+[claude-share] ✓ Wrote config: /etc/claude-share/config
+[claude-share] Done. Managed users: usera userb
+```
+
+### Step 4 — Verify everything is healthy
+
+```bash
 sudo claude-share status
+```
 
-# 4. Each user can now run claude without re-logging-in
+Every row in the per-user link check should be marked `✓`. Example:
+
+```text
+[claude-share] Per-user links
+  user: usera
+    group claudeshare: ✓
+    ✓ .claude/.credentials.json
+    ✓ .claude.json
+    ✓ .claude/settings.json
+    ✓ .claude/settings.local.json
+  user: userb
+    group claudeshare: ✓
+    ✓ .claude/.credentials.json
+    ✓ .claude.json
+    ✓ .claude/settings.json
+    ✓ .claude/settings.local.json
+```
+
+If anything is `✗`, run `sudo claude-share sync` and re-check.
+
+### Step 5 — Try it as each managed user
+
+```bash
 su - usera -c 'claude --help'
 su - userb -c 'claude --help'
+```
+
+Neither should ask you to `/login` — they are reading the shared credentials
+transparently through the symlinks.
+
+### Step 6 — (Optional) Add more users later
+
+```bash
+sudo claude-share add-user charlie   # prompts for password
+```
+
+Or non-interactively:
+
+```bash
+sudo claude-share add-user charlie --password 'charlie1234'
 ```
 
 ## Subcommands

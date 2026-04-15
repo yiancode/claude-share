@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# claude-share — share Claude Code auth across multiple Linux users
+#
+# Usage: claude-share <command> [options]
+#
+# Commands:
+#   init         First-time setup: create users/group, link shared auth.
+#   add-user     Add a user to the shared setup.
+#   remove-user  Detach a user from the shared setup.
+#   status       Show current configuration and health checks.
+#   sync         Re-apply symlinks (fix broken ones, pick up upgrades).
+#   uninstall    Undo the shared-auth setup.
+#   version      Print version.
+#   help         Show this message.
+
+set -Eeuo pipefail
+
+CLAUDE_SHARE_VERSION="0.1.0"
+
+# Resolve our install directory (follow symlinks)
+resolve_self() {
+  local src="${BASH_SOURCE[0]}" dir
+  while [[ -L "$src" ]]; do
+    dir="$(cd -P "$(dirname "$src")" >/dev/null 2>&1 && pwd)"
+    src="$(readlink "$src")"
+    [[ "$src" != /* ]] && src="$dir/$src"
+  done
+  cd -P "$(dirname "$src")" >/dev/null 2>&1 && pwd
+}
+BIN_DIR="$(resolve_self)"
+ROOT_DIR="$(cd -P "$BIN_DIR/.." && pwd)"
+LIB_DIR="${CLAUDE_SHARE_LIB:-$ROOT_DIR/lib}"
+CMD_DIR="${CLAUDE_SHARE_CMD:-$ROOT_DIR/commands}"
+
+# shellcheck source=../lib/common.sh
+source "$LIB_DIR/common.sh"
+# shellcheck source=../lib/paths.sh
+source "$LIB_DIR/paths.sh"
+# shellcheck source=../lib/prompt.sh
+source "$LIB_DIR/prompt.sh"
+# shellcheck source=../lib/users.sh
+source "$LIB_DIR/users.sh"
+# shellcheck source=../lib/sync.sh
+source "$LIB_DIR/sync.sh"
+
+usage() {
+  sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+main() {
+  local cmd="${1:-help}"
+  [[ $# -gt 0 ]] && shift
+
+  case "$cmd" in
+    init)
+      # shellcheck source=../commands/init.sh
+      source "$CMD_DIR/init.sh"
+      cmd_init "$@"
+      ;;
+    add-user|add_user)
+      # shellcheck source=../commands/add_user.sh
+      source "$CMD_DIR/add_user.sh"
+      cmd_add_user "$@"
+      ;;
+    remove-user|remove_user)
+      # shellcheck source=../commands/remove_user.sh
+      source "$CMD_DIR/remove_user.sh"
+      cmd_remove_user "$@"
+      ;;
+    status)
+      # shellcheck source=../commands/status.sh
+      source "$CMD_DIR/status.sh"
+      cmd_status "$@"
+      ;;
+    sync)
+      # shellcheck source=../commands/sync.sh
+      source "$CMD_DIR/sync.sh"
+      cmd_sync "$@"
+      ;;
+    uninstall)
+      # shellcheck source=../commands/uninstall.sh
+      source "$CMD_DIR/uninstall.sh"
+      cmd_uninstall "$@"
+      ;;
+    version|--version|-V)
+      printf 'claude-share %s\n' "$CLAUDE_SHARE_VERSION"
+      ;;
+    help|--help|-h|"")
+      usage
+      ;;
+    *)
+      err "unknown command: $cmd"
+      usage
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

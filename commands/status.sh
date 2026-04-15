@@ -60,6 +60,7 @@ PY
   # Per-user symlink health
   printf '%s Per-user links\n' "$CS_TAG"
   local u rel abs_home abs_shared status
+  local broken_total=0 severed_total=0
   for u in "${MANAGED_USERS[@]}"; do
     printf '  user: %s\n' "$u"
     if ! user_exists "$u"; then
@@ -75,12 +76,41 @@ PY
     while IFS= read -r rel; do
       abs_home="$home/$rel"
       abs_shared="$(shared_target_for "$rel")"
+      local note=""
       if [[ -L "$abs_home" && "$(readlink "$abs_home")" == "$abs_shared" ]]; then
         status="${CS_C_GREEN}✓${CS_C_RESET}"
+      elif [[ -L "$abs_home" ]]; then
+        # Still a symlink, just pointing somewhere else — broken target.
+        status="${CS_C_RED}✗${CS_C_RESET}"
+        note=" (symlink retargeted; run: claude-share sync)"
+        broken_total=$((broken_total + 1))
+      elif [[ -e "$abs_home" ]]; then
+        # A real file has replaced the symlink — this is the "rename
+        # severed the link" case. Typically caused by Claude Code (or
+        # another tool) writing the file via write-temp+rename, which
+        # replaces the symlink itself instead of the shared target.
+        # sync can rebuild it, but the real file's content won't make
+        # it back into the shared copy — we just back up and re-link.
+        status="${CS_C_RED}✗${CS_C_RESET}"
+        note=" (real file — symlink was severed by rename; run: claude-share sync)"
+        severed_total=$((severed_total + 1))
       else
         status="${CS_C_RED}✗${CS_C_RESET}"
+        note=" (missing)"
+        broken_total=$((broken_total + 1))
       fi
-      printf '    %s %s\n' "$status" "$rel"
+      printf '    %s %s%s\n' "$status" "$rel" "$note"
     done < <(shared_items)
   done
+
+  printf '\n'
+  if (( severed_total > 0 )); then
+    warn "$severed_total severed symlink(s) detected — shared auth is degraded."
+    warn "Run: sudo claude-share sync"
+    return 2
+  fi
+  if (( broken_total > 0 )); then
+    warn "$broken_total broken link(s) — run: sudo claude-share sync"
+    return 2
+  fi
 }

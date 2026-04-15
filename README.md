@@ -81,6 +81,18 @@ curl -fsSL https://raw.githubusercontent.com/yiancode/claude-share/main/install.
   | sudo bash
 ```
 
+> **Security note.** Piping `curl | bash` trusts whatever is at `main`
+> right now. For production hosts, pin a specific commit SHA:
+>
+> ```bash
+> REF=<full-sha> curl -fsSL \
+>   "https://raw.githubusercontent.com/yiancode/claude-share/${REF}/install.sh" \
+>   | sudo REF="${REF}" bash
+> ```
+>
+> `install.sh` honours `REF` when cloning the repo, so both the installer
+> script and the cloned source will be frozen at the same commit.
+
 ### Step 2 — Install the CLI
 
 ```bash
@@ -208,7 +220,33 @@ Run any command with `--help` for flags.
 
 ## Non-interactive mode
 
-Every prompt can be skipped for automation:
+Every prompt can be skipped for automation. There are two patterns:
+
+**Safe: passwords in a root-owned file.** `--users-from-file` takes a file
+of `name:password` lines (one per line, `#` comments allowed). The file
+must be mode `0600` and owned by `root`; claude-share refuses anything
+else.
+
+```bash
+umask 077
+cat > /root/users.txt <<'EOF'
+usera:usera1234
+userb:userb1234
+EOF
+chmod 600 /root/users.txt
+
+sudo claude-share init --yes \
+  --shared-dir /shared/claude-share \
+  --group claudeshare \
+  --users-from-file /root/users.txt
+
+sudo claude-share add-user alice --password-from-file /root/alice.pw
+```
+
+**Unsafe: passwords in argv.** `--user name:password` and `--password <pw>`
+still work but the password is visible to `ps` / process accounting for
+the lifetime of the command. claude-share prints a warning when you use
+these forms. Only acceptable on single-tenant hosts.
 
 ```bash
 sudo claude-share init --yes \
@@ -216,12 +254,14 @@ sudo claude-share init --yes \
   --group claudeshare \
   --user usera:usera1234 \
   --user userb:userb1234
-
-sudo claude-share add-user alice --password 'alice-pw-with $peci@l chars'
 ```
 
-Be aware that passing passwords on the command line leaks them to
-`ps`/process accounting. Prefer interactive mode on multi-user hosts.
+**Post-setup gotcha: re-login required.** `usermod -aG` does not affect
+already-running sessions. A managed user who is logged in when
+`init` / `add-user` runs must log out and log back in before `claude`
+can see the new group membership — otherwise the very first `claude`
+run hits EPERM on the shared credentials file. claude-share prints a
+warning at the end of init/add-user reminding you of this.
 
 ## How the permissions work
 
@@ -261,10 +301,24 @@ each user's private `$HOME`. Recommendations:
 defined in `lib/paths.sh`. If a future version of Claude adds a new auth
 file, update that list and re-run `sudo claude-share sync`.
 
-**What about token refresh?** When Claude refreshes the OAuth token, it does
-a write-tempfile + `rename(2)` on `.credentials.json`. Because we symlink to
-the real file, `rename(2)` ends up on the shared inode, and every other
-user's next read picks up the new token. No daemon needed.
+**What about token refresh?** When Claude refreshes the OAuth token, it
+writes the new value back to `.credentials.json`. Two behaviours are
+possible:
+
+- **Write in place** (open + truncate + write): the write follows the
+  symlink and lands on the shared inode. Every user's next read picks
+  up the new token. Zero coordination needed.
+- **Write tempfile + `rename(2)`**: `rename(2)` replaces **the symlink
+  itself** with a fresh real file in `$HOME`. The symlink chain is
+  broken for that user — their next read still works (they own the
+  real file now), but other users are still pointing at the old shared
+  file, which is no longer being updated. **This is the "severed
+  symlink" failure mode.**
+
+`claude-share status` detects both broken symlinks and severed symlinks
+and tells you to run `sudo claude-share sync`, which backs up the rogue
+local file and restores the symlink. Running status periodically (e.g.
+via cron) is recommended on busy multi-user hosts.
 
 **Can I share auth but keep `settings.local.json` private?** Yes — pass
 `--no-settings-local` to `init`, or edit `/etc/claude-share/config` and
@@ -276,9 +330,16 @@ POSIX groups, chmod/chown) works anywhere. User creation goes through
 `adduser` by default — patches welcome.
 
 **What if two users both need to refresh the token at the same time?** The
-shared file is a single inode with 660 permissions. Concurrent refresh is
-safe at the OS level (atomic rename); the only risk is if Claude's own
-refresh logic writes in-place without renaming, which it does not.
+shared file is a single inode with 660 permissions. At the OS level each
+individual write is atomic (either rename or O_TRUNC+write of a small
+JSON blob), so the file will not be corrupted. However, claude-share does
+**not** merge or serialise the logical refresh: if both users refresh
+concurrently, last-writer-wins on the shared inode. In practice the
+window is tiny (refresh takes a few hundred ms and happens rarely), and
+both refreshes produce an equivalent fresh token, so this is usually
+benign. If you see frequent OAuth errors on a multi-user host, run
+`claude-share status` to check for severed symlinks — those cause many
+more user-visible failures than races do.
 
 ## Development
 

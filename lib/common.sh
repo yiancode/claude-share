@@ -48,16 +48,32 @@ load_config() {
   return 0
 }
 
+# Format-check a loaded config — everything came from our own save_config,
+# but a corrupted or hand-edited file could leave us with missing globals.
+# Called by require_initialized after load_config so downstream code can
+# assume the globals are sane.
+require_valid_config() {
+  [[ -n "${SHARED_DIR:-}"    ]] || die "config: SHARED_DIR is empty ($CS_CONFIG_FILE)"
+  [[ -n "${SHARE_GROUP:-}"   ]] || die "config: SHARE_GROUP is empty ($CS_CONFIG_FILE)"
+  [[ -n "${SOURCE_USER:-}"   ]] || die "config: SOURCE_USER is empty ($CS_CONFIG_FILE)"
+  [[ "$SHARED_DIR" == /* ]]     || die "config: SHARED_DIR must be absolute: $SHARED_DIR"
+}
+
 require_initialized() {
   if ! load_config; then
     die "claude-share is not initialized yet. Run: sudo claude-share init"
   fi
+  require_valid_config
 }
 
 save_config() {
   local dir
   dir="$(dirname "$CS_CONFIG_FILE")"
-  install -d -m 700 "$dir"
+  # The config file holds no secrets (paths, group name, list of managed
+  # usernames) — everyone in the claudeshare group can already see all of
+  # this via `id` and `ls -l`. Keep it world-readable so non-root users
+  # can run `claude-share status` to self-diagnose without sudo.
+  install -d -m 755 "$dir"
   {
     printf '# claude-share config — generated %s\n' "$(date -Iseconds)"
     printf 'SHARED_DIR=%q\n' "$SHARED_DIR"
@@ -72,7 +88,7 @@ save_config() {
     done
     printf ')\n'
   } > "$CS_CONFIG_FILE"
-  chmod 600 "$CS_CONFIG_FILE"
+  chmod 644 "$CS_CONFIG_FILE"
 }
 
 # Idempotently append a line to a file, marked so it can be reliably removed.

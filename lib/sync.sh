@@ -53,7 +53,17 @@ seed_shared_from_source_user() {
     elif [[ -f "$abs_src" ]]; then
       cp -a "$abs_src" "$abs_shared"
     else
-      : > "$abs_shared"
+      # Claude Code parses these files as JSON on startup; a zero-byte file
+      # makes it throw on first run. Seed with an empty JSON object so the
+      # symlink chain is immediately usable, even before any user has run
+      # `claude /login`. Only `.credentials.json` is exempt — Claude itself
+      # treats a missing credentials file as "not logged in" and handles it,
+      # while an empty-object credentials file would look like a corrupt
+      # login.
+      case "$rel" in
+        *.credentials.json) : > "$abs_shared" ;;
+        *)                  printf '{}\n' > "$abs_shared" ;;
+      esac
     fi
 
     priv_chown "$SOURCE_USER:$SHARE_GROUP" "$abs_shared"
@@ -81,7 +91,9 @@ link_user_to_shared() {
   home="$(user_home "$user")" || die "cannot find home for $user"
   [[ -d "$home" ]] || die "home directory missing for $user: $home"
 
-  ts="$(date +%s)"
+  # Include nanoseconds + PID so rapid successive calls (tests, scripted
+  # sync) can't collide on a single-second boundary.
+  ts="$(date +%s%N).$$"
   backup_dir="$home/.claude-share.bak.$ts"
 
   while IFS= read -r rel; do

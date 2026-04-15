@@ -79,6 +79,9 @@ cmd_init() {
 
   bootstrap_shared_dir
   seed_shared_from_source_user
+  # The source user's own files just got moved into the shared dir. Link
+  # them back so "claude" as $SOURCE_USER still finds its config.
+  link_user_to_shared "$SOURCE_USER"
   ok "Shared dir ready: $SHARED_DIR"
 
   # Collect users to create

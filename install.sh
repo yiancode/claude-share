@@ -2,7 +2,7 @@
 # install.sh — download and install claude-share
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/<owner>/claude-share/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/yiancode/claude-share/main/install.sh | sudo bash
 #
 # Or, if you already have a local clone:
 #   sudo ./install.sh
@@ -10,7 +10,7 @@
 set -Eeuo pipefail
 
 PREFIX="${PREFIX:-/usr/local}"
-REPO_URL="${REPO_URL:-https://github.com/<owner>/claude-share.git}"
+REPO_URL="${REPO_URL:-https://github.com/yiancode/claude-share.git}"
 REF="${REF:-main}"
 INSTALL_DIR="$PREFIX/lib/claude-share"
 BIN_LINK="$PREFIX/bin/claude-share"

@@ -70,14 +70,14 @@ exit
 ### Step 1 — Get the code
 
 ```bash
-git clone https://github.com/<owner>/claude-share.git
+git clone https://github.com/yiancode/claude-share.git
 cd claude-share
 ```
 
 After publishing, the one-liner equivalent is:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/claude-share/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/yiancode/claude-share/main/install.sh \
   | sudo bash
 ```
 

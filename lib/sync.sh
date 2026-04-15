@@ -21,9 +21,14 @@ bootstrap_shared_dir() {
   priv_install_dir 2770 "$SOURCE_USER" "$SHARE_GROUP" "$SHARED_DIR/$SHARED_HOME_SUBDIR"
 }
 
-# Move $SOURCE_USER's existing files into the shared dir. If a file does not
-# exist yet, create a zero-byte placeholder so we have something to link to.
-# Idempotent: if the canonical copy already exists, leave it alone.
+# Copy $SOURCE_USER's existing files into the shared dir. The source file is
+# left in place so nothing running as $SOURCE_USER (including an active
+# claude session) loses access mid-init. link_user_to_shared will later
+# atomically replace the source file with a symlink.
+#
+# If the source file doesn't exist yet, we create a zero-byte placeholder so
+# we always have something to link to.
+# Idempotent: if the canonical copy already exists, it's left alone.
 seed_shared_from_source_user() {
   local src_home rel abs_src abs_shared parent
   src_home="$(user_home "$SOURCE_USER")" || die "cannot find home for $SOURCE_USER"
@@ -46,7 +51,7 @@ seed_shared_from_source_user() {
       # Source is already a symlink — most likely pointing here. Do nothing.
       :
     elif [[ -f "$abs_src" ]]; then
-      mv "$abs_src" "$abs_shared"
+      cp -a "$abs_src" "$abs_shared"
     else
       : > "$abs_shared"
     fi
@@ -54,6 +59,17 @@ seed_shared_from_source_user() {
     priv_chown "$SOURCE_USER:$SHARE_GROUP" "$abs_shared"
     chmod 660 "$abs_shared"
   done < <(shared_items)
+}
+
+# Atomically replace $path with a symlink to $target. "Atomically" means
+# there is no instant where $path doesn't exist: we stage the symlink next
+# to it and use rename(2) to swap. This matters when a running process
+# (e.g. an active claude session) may read the file mid-operation.
+_atomic_symlink() {
+  local target="$1" path="$2"
+  local stage="${path}.claude-share.stage.$$"
+  ln -sfn "$target" "$stage"
+  mv -Tf "$stage" "$path"
 }
 
 # For a given user, make sure every SHARED_ITEM under their $HOME is a
@@ -84,16 +100,23 @@ link_user_to_shared() {
       if [[ "$cur" == "$abs_shared" ]]; then
         continue
       fi
-      rm -f "$abs_home"
-    elif [[ -e "$abs_home" ]]; then
+      # Wrong symlink target — replace atomically.
+      _atomic_symlink "$abs_shared" "$abs_home"
+      priv_chown_link "$user:$user" "$abs_home"
+      continue
+    fi
+
+    if [[ -e "$abs_home" ]]; then
+      # A real file exists. Back it up under a per-user backup dir so
+      # nothing is silently destroyed, then atomically replace with symlink.
       priv_install_dir 700 "$user" "$user" "$backup_dir"
       local dest="$backup_dir/$rel"
       priv_install_dir 755 "$user" "$user" "$(dirname "$dest")"
-      mv "$abs_home" "$dest"
+      cp -a "$abs_home" "$dest"
       warn "Backed up $abs_home -> $dest"
     fi
 
-    ln -sfn "$abs_shared" "$abs_home"
+    _atomic_symlink "$abs_shared" "$abs_home"
     priv_chown_link "$user:$user" "$abs_home"
   done < <(shared_items)
 }

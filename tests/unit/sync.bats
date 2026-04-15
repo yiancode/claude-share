@@ -21,13 +21,48 @@ teardown() { teardown_sandbox; }
   [ -d "$SHARED_DIR/home" ]
 }
 
-@test "seed_shared_from_source_user moves real files to the shared dir" {
+@test "seed_shared_from_source_user copies real files to the shared dir" {
   bootstrap_shared_dir
   seed_shared_from_source_user
   [ -f "$SHARED_DIR/home/.claude/.credentials.json" ]
   [ -f "$SHARED_DIR/home/.claude.json" ]
   [ -f "$SHARED_DIR/home/.claude/settings.json" ]
   [ -f "$SHARED_DIR/home/.claude/settings.local.json" ]
+}
+
+@test "seed_shared_from_source_user preserves the source files (no mv)" {
+  bootstrap_shared_dir
+  seed_shared_from_source_user
+  # Source files must still be in place so an active claude session does
+  # not lose access mid-init.
+  [ -f "$CS_TEST_ROOT/home/$SOURCE_USER/.claude/.credentials.json" ]
+  [ -f "$CS_TEST_ROOT/home/$SOURCE_USER/.claude.json" ]
+  [ -f "$CS_TEST_ROOT/home/$SOURCE_USER/.claude/settings.json" ]
+  [ -f "$CS_TEST_ROOT/home/$SOURCE_USER/.claude/settings.local.json" ]
+  # And the content must match
+  grep -q '"accessToken":"xxx"' "$CS_TEST_ROOT/home/$SOURCE_USER/.claude/.credentials.json"
+  grep -q '"accessToken":"xxx"' "$SHARED_DIR/home/.claude/.credentials.json"
+}
+
+@test "link_user_to_shared leaves no gap (replaces file atomically)" {
+  bootstrap_shared_dir
+  seed_shared_from_source_user
+
+  local user="bob"
+  mkdir -p "$CS_TEST_ROOT/home/$user/.claude"
+  echo "original bob content" > "$CS_TEST_ROOT/home/$user/.claude/.credentials.json"
+
+  link_user_to_shared "$user"
+
+  # After linking: path must exist (no gap), and must be a symlink to shared
+  local p="$CS_TEST_ROOT/home/$user/.claude/.credentials.json"
+  [ -e "$p" ]
+  [ -L "$p" ]
+  [ "$(readlink "$p")" = "$SHARED_DIR/home/.claude/.credentials.json" ]
+
+  # The original content was backed up, not destroyed
+  run find "$CS_TEST_ROOT/home/$user" -name "*.credentials.json" -not -type l
+  echo "$output" | xargs -r grep -l "original bob content"
 }
 
 @test "seed_shared_from_source_user is idempotent" {

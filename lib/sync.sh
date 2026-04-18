@@ -79,7 +79,7 @@ _atomic_symlink() {
   local target="$1" path="$2"
   local stage="${path}.claude-share.stage.$$"
   ln -sfn "$target" "$stage"
-  mv -Tf "$stage" "$path"
+  mv -f "$stage" "$path"
 }
 
 # For a given user, make sure every SHARED_ITEM under their $HOME is a

@@ -53,9 +53,16 @@ prompt_password() {
 
 prompt_yes_no() {
   local msg="$1" default="${2:-n}" reply
-  local suffix
+  local suffix reply_lc
   if [[ "$default" == "y" ]]; then suffix="[Y/n]"; else suffix="[y/N]"; fi
-  read -r -p "$msg $suffix: " reply
+  printf '%s %s: ' "$msg" "$suffix" >&2
+  if ! IFS= read -r reply; then
+    reply="$default"
+  fi
   reply="${reply:-$default}"
-  [[ "${reply,,}" == "y" || "${reply,,}" == "yes" ]]
+  reply_lc="$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$reply_lc" == "y" || "$reply_lc" == "yes" ]]; then
+    return 0
+  fi
+  return 1
 }

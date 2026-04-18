@@ -14,6 +14,7 @@ REPO_URL="${REPO_URL:-https://github.com/yiancode/claude-share.git}"
 REF="${REF:-main}"
 INSTALL_DIR="$PREFIX/lib/claude-share"
 BIN_LINK="$PREFIX/bin/claude-share"
+CS_LINK="$PREFIX/bin/cs"
 
 if [[ $EUID -ne 0 ]]; then
   echo "install.sh must be run as root (try: sudo $0)" >&2
@@ -37,12 +38,17 @@ fi
 install -d -m 755 "$INSTALL_DIR"
 cp -a "$src/bin" "$src/lib" "$src/commands" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/bin/claude-share"
+chmod +x "$INSTALL_DIR/bin/cs"
 
 install -d -m 755 "$(dirname "$BIN_LINK")"
 ln -sfn "$INSTALL_DIR/bin/claude-share" "$BIN_LINK"
+ln -sfn "$INSTALL_DIR/bin/cs" "$CS_LINK"
 
 echo "Installed claude-share to $INSTALL_DIR"
 echo "Symlinked $BIN_LINK"
+echo "Symlinked $CS_LINK"
 echo ""
 echo "Next step:"
-echo "  sudo claude-share init"
+echo "  Server: sudo claude-share server init"
+echo "  Client: claude-share client init <user@host>"
+echo "  Daily : cd /your/project && cs live"

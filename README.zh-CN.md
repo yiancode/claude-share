@@ -5,6 +5,105 @@
 在同一台 Linux 机器上，多个系统用户共享 Claude Code 的鉴权信息，同时**严格隔离**
 每个用户的会话和项目数据。
 
+现在也包含一个 **SSH 反向隧道工作区模式**：把本地工作区通过 SSH 发布到
+Linux 服务器，在服务器上用 `sshfs` 挂载，并把常见构建/测试命令代理回本地执行，
+这样消耗的是本地 CPU / 内存。
+
+## 推荐体验：三步完成
+
+新版推荐把命令面分成三层：
+
+- **服务器初始化**：`claude-share server ...`
+- **本地初始化**：`claude-share client ...`
+- **日常使用**：`cs ...`
+
+### 第一步：服务器上初始化一次
+
+```bash
+sudo claude-share server init
+```
+
+后续加用户：
+
+```bash
+sudo claude-share server add-user alice
+sudo claude-share server add-user bob
+```
+
+### 第二步：本地初始化一次
+
+```bash
+claude-share client init st@43.162.99.88
+```
+
+这一步会：
+
+- 安装/更新本地 CLI
+- 安装/更新远端 CLI
+- 生成或复用 SSH key
+- 下发公钥到远端
+- 检查本地 sshd 与远端 `sshfs`
+- 保存默认 client profile
+
+### 第三步：以后每次只在当前目录执行一条命令
+
+```bash
+cd /your/project
+cs live
+```
+
+默认行为：
+
+1. 发布当前目录
+2. 建立反向 SSH 隧道
+3. 自动选择远端空闲端口
+4. 自动在远端挂载当前目录
+5. 自动进入远端挂载目录
+6. 自动启动远端 `claude`
+
+在真正进入远端 `claude` 前，`cs live` 会先打印一段欢迎摘要，告诉你：
+
+- 当前 server
+- 当前 session
+- 主挂载目录
+- 所有额外挂载目录
+- 停止命令 `cs stop`
+
+示例输出：
+
+```text
+[claude-share] Live mount paths
+  session          myproj-20260419-001500
+  main             /home/st/.claude-share/mounts/myproj-20260419-001500 <= /Users/me/work/myproj
+  extra            /home/st/.claude-share/extras/myproj-20260419-001500/1-data <= /Users/me/data
+```
+
+如果还要附加别的目录：
+
+```bash
+cs add ~/Documents/data
+cs list
+cs remove ~/Documents/data
+```
+
+查看当前 live session 在远端的挂载路径：
+
+```bash
+cs where
+```
+
+查看当前状态的机器可读 JSON：
+
+```bash
+cs status --json
+```
+
+结束当前 live session：
+
+```bash
+cs stop
+```
+
 > **问题。** 你在服务器上给同事建了 `usera` 和 `userb` 两个账号。他们各自登录、跑
 > `claude`，然后……都得重新 `/login`、重新配一遍。Claude Code 把 OAuth token 存在
 > `~/.claude/.credentials.json` —— 这是每个用户私有的家目录文件。
@@ -36,7 +135,7 @@
 会透过软链落到共享文件上，其他用户下次读文件就自然拿到新 token —— 不需要任何
 后台进程。
 
-## 快速上手
+## 经典共享鉴权快速上手
 
 从一台干净的机器开始，一步步走到多用户共享完成，不省略任何步骤。
 
@@ -184,14 +283,94 @@ sudo claude-share add-user charlie --password 'charlie1234'
 
 | 命令 | 作用 |
 |---|---|
-| `init` | 首次初始化：交互式创建用户、建组、接入共享鉴权 |
-| `add-user <name>` | 后续继续加人。默认交互式输入密码，也可以用 `--password` |
-| `remove-user <name>` | 把某个用户从共享体系中摘出来：软链替换回实文件，移出共享组。加 `--delete-account` 连同 `userdel -r` |
-| `status` | 打印配置、权限，以及每个受管用户每条软链的健康检查 ✓/✗，并解析 `.credentials.json` 的 `expiresAt` |
-| `sync` | 重新套用所有软链 —— 用户误删软链、或升级 `claude-share` 后用 |
-| `uninstall` | 把软链全部替换回实文件、把用户从共享组剔出。加 `--purge-shared-dir` 同时删掉 `/shared/claude-share`。**永远不会**删除 Linux 账号 |
+| `server init` | 服务器端初始化共享 Claude 认证与多用户环境 |
+| `server add-user` | 服务器后续继续加用户 |
+| `server status` | 查看服务器共享认证健康状态 |
+| `client init <user@host>` | 本地初始化并引导远端就绪 |
+| `client status` | 查看本地保存的默认服务器配置 |
+| `cs live` | 从当前目录一键建立 live 会话并启动远端 Claude |
+| `cs add <dir>` | 注册额外挂载目录，后续 `cs live` 自动附加 |
+| `cs list` | 查看已注册的额外挂载目录 |
+| `cs remove <dir>` | 删除已注册的额外挂载目录 |
+| `cs where` | 显示当前 live session 在远端的主挂载目录与额外挂载目录 |
+| `cs status` | 查看当前 client profile 与本地 live session |
+| `cs status --json` | 以 JSON 输出当前 client profile、active session 与挂载路径 |
+| `cs stop` | 停止当前 live session，并尝试远端卸载 |
+| `tunnel ...` | 底层高级命令面，主要用于调试和开发，不推荐普通用户直接使用 |
 
 每个命令加 `--help` 可以看所有选项。
+
+## 高级与调试：底层 tunnel 命令
+
+这组命令仍然保留，但现在更推荐直接用：
+
+```bash
+claude-share client init <user@host>
+cs live
+```
+
+下面的 `tunnel ...` 更适合：
+
+- 调试
+- 排障
+- 开发 claude-share 本身
+- 验证底层 SSH / 挂载行为
+
+如果你只是日常使用，请优先记住这三条：
+
+```bash
+sudo claude-share server init
+claude-share client init <user@host>
+cs live
+```
+
+### 前提条件
+
+- **本地机器**：需要 OpenSSH client + server，并且 SSH 登录后能找到 Bash 兼容 shell。
+  macOS/Linux 最直接；Windows 需要 OpenSSH Server，并建议配 Git Bash 或 MSYS2。
+- **服务器**：Linux，且可用 `sshfs` + FUSE。
+- 两端都应安装 `claude-share`。
+
+### 最小示例
+
+本地：
+
+```bash
+claude-share tunnel serve \
+  --workspace /绝对路径/你的项目 \
+  --server user@example.com
+```
+
+远端：
+
+```bash
+claude-share tunnel mount --session project-20260418-120000
+source ~/.claude-share/remote/project-20260418-120000/env.sh
+cd ~/.claude-share/mounts/project-20260418-120000
+claude
+```
+
+辅助命令：
+
+```bash
+claude-share tunnel status --session project-20260418-120000
+claude-share tunnel umount --session project-20260418-120000
+```
+
+这就是底层命令面的完整最小流程。如果你不是在调试传输层、挂载层或开发
+claude-share 本身，优先使用：
+
+```bash
+claude-share client init <user@host>
+cs live
+```
+
+### 当前限制
+
+- 服务器侧目前只支持 Linux。
+- 每个会话只发布**一个工作区目录树**。
+- 命令代理覆盖常见开发命令，不是任意二进制都自动代理。
+- `tunnel serve` 退出后，反向隧道会关闭，同时本地 `authorized_keys` 里的临时 key 会被移除。
 
 ## 非交互模式
 

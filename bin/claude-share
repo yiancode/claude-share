@@ -10,6 +10,10 @@
 #   status       Show current configuration and health checks.
 #   sync         Re-apply symlinks (fix broken ones, pick up upgrades).
 #   uninstall    Undo the shared-auth setup.
+#   server       Server-side multi-user management commands.
+#   client       Local client initialization and profile commands.
+#   cs           Unified daily-use workflow commands.
+#   tunnel       Reverse SSH tunnel + workspace mount helpers.
 #   version      Print version.
 #   help         Show this message.
 
@@ -42,9 +46,19 @@ source "$LIB_DIR/prompt.sh"
 source "$LIB_DIR/users.sh"
 # shellcheck source=../lib/sync.sh
 source "$LIB_DIR/sync.sh"
+# shellcheck source=../lib/tunnel_state.sh
+source "$LIB_DIR/tunnel_state.sh"
+# shellcheck source=../lib/tunnel_common.sh
+source "$LIB_DIR/tunnel_common.sh"
+# shellcheck source=../lib/tunnel_ssh.sh
+source "$LIB_DIR/tunnel_ssh.sh"
+# shellcheck source=../lib/tunnel_exec.sh
+source "$LIB_DIR/tunnel_exec.sh"
+# shellcheck source=../lib/client_profile.sh
+source "$LIB_DIR/client_profile.sh"
 
 usage() {
-  sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 main() {
@@ -81,6 +95,26 @@ main() {
       # shellcheck source=../commands/uninstall.sh
       source "$CMD_DIR/uninstall.sh"
       cmd_uninstall "$@"
+      ;;
+    server)
+      # shellcheck source=../commands/server.sh
+      source "$CMD_DIR/server.sh"
+      cmd_server "$@"
+      ;;
+    client)
+      # shellcheck source=../commands/client.sh
+      source "$CMD_DIR/client.sh"
+      cmd_client "$@"
+      ;;
+    cs)
+      # shellcheck source=../commands/cs.sh
+      source "$CMD_DIR/cs.sh"
+      cmd_cs "$@"
+      ;;
+    tunnel)
+      # shellcheck source=../commands/tunnel.sh
+      source "$CMD_DIR/tunnel.sh"
+      cmd_tunnel "$@"
       ;;
     version|--version|-V)
       printf 'claude-share %s\n' "$CLAUDE_SHARE_VERSION"

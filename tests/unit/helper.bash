@@ -19,6 +19,16 @@ setup_sandbox() {
   source "$REPO_ROOT/lib/prompt.sh"
   # shellcheck source=../../lib/sync.sh
   source "$REPO_ROOT/lib/sync.sh"
+  # shellcheck source=../../lib/tunnel_state.sh
+  source "$REPO_ROOT/lib/tunnel_state.sh"
+  # shellcheck source=../../lib/tunnel_common.sh
+  source "$REPO_ROOT/lib/tunnel_common.sh"
+  # shellcheck source=../../lib/tunnel_ssh.sh
+  source "$REPO_ROOT/lib/tunnel_ssh.sh"
+  # shellcheck source=../../lib/tunnel_exec.sh
+  source "$REPO_ROOT/lib/tunnel_exec.sh"
+  # shellcheck source=../../lib/client_profile.sh
+  source "$REPO_ROOT/lib/client_profile.sh"
 
   SHARED_DIR="$CS_TEST_ROOT/shared"
   SHARE_GROUP="$(id -gn)"   # current group, so chown works as non-root

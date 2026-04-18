@@ -5,6 +5,107 @@ English | [简体中文](README.zh-CN.md)
 Share Claude Code authentication across multiple Linux users on one machine,
 while keeping per-user session/project data fully isolated.
 
+It also includes a **reverse-tunnel workspace mode**: publish a
+local workspace to a Linux server over SSH, mount it there via `sshfs`, and
+proxy common build/test commands back to your local machine so they consume
+your local CPU and memory.
+
+## Recommended workflow: three steps
+
+The recommended CLI surface is now split into three layers:
+
+- **Server setup**: `claude-share server ...`
+- **Local client setup**: `claude-share client ...`
+- **Daily use**: `cs ...`
+
+### Step 1 — Initialize the server once
+
+```bash
+sudo claude-share server init
+```
+
+Add more users later:
+
+```bash
+sudo claude-share server add-user alice
+sudo claude-share server add-user bob
+```
+
+### Step 2 — Initialize the local client once
+
+```bash
+claude-share client init st@43.162.99.88
+```
+
+This step:
+
+- installs/updates the local CLI
+- installs/updates the remote CLI
+- generates or reuses an SSH key
+- pushes the public key to the server
+- verifies local sshd and remote `sshfs`
+- saves a default client profile
+
+### Step 3 — Daily use is one command from the current directory
+
+```bash
+cd /your/project
+cs live
+```
+
+By default it:
+
+1. publishes the current directory
+2. opens the reverse SSH tunnel
+3. auto-picks a free remote port
+4. mounts the current directory on the server
+5. enters the remote mount directory
+6. starts remote `claude`
+
+Before jumping into remote `claude`, `cs live` now prints a short welcome
+summary showing:
+
+- the current server
+- the current session
+- the main mount path
+- any extra mount paths
+- the stop command: `cs stop`
+
+Example output:
+
+```text
+[claude-share] Live mount paths
+  session          myproj-20260419-001500
+  main             /home/st/.claude-share/mounts/myproj-20260419-001500 <= /Users/me/work/myproj
+  extra            /home/st/.claude-share/extras/myproj-20260419-001500/1-data <= /Users/me/data
+```
+
+Need extra directories later:
+
+```bash
+cs add ~/Documents/data
+cs list
+cs remove ~/Documents/data
+```
+
+Show the current live session's remote mount paths:
+
+```bash
+cs where
+```
+
+Show the current status as machine-readable JSON:
+
+```bash
+cs status --json
+```
+
+Stop the current live session:
+
+```bash
+cs stop
+```
+
 > **The problem.** You create Linux accounts `usera` and `userb` so two people can
 > share a server. Each of them logs in, runs `claude`, and… has to
 > `/login` again and reconfigure everything from scratch. Claude Code stores
@@ -41,7 +142,7 @@ each managed user's `$HOME/<relpath>` is a symlink to that single copy. When
 Claude refreshes the OAuth token it writes the new value through the symlink,
 so all users stay in sync with zero extra processes.
 
-## Quick start
+## Classic shared-auth quick start
 
 The full walkthrough from a fresh machine to a working multi-user setup.
 
@@ -209,14 +310,97 @@ sudo claude-share add-user charlie --password 'charlie1234'
 
 | Command | What it does |
 |---|---|
-| `init` | First-time setup: prompt for users, create accounts, wire up shared auth. |
-| `add-user <name>` | Add another user later. Prompts for password (or `--password`). |
-| `remove-user <name>` | Detach a user: replace their symlinks with real files and remove them from the shared group. Use `--delete-account` to also `userdel -r`. |
-| `status` | Show config, permissions, and a per-user health check of every symlink. Also reports `expiresAt` of the cached OAuth token. |
-| `sync` | Re-apply symlinks — run this if a user accidentally broke one, or after upgrading `claude-share`. |
-| `uninstall` | Turn symlinks back into real files and drop users from the shared group. Add `--purge-shared-dir` to also delete `/shared/claude-share`. Linux accounts are always left alone. |
+| `server init` | Initialize shared Claude auth and the managed multi-user server environment. |
+| `server add-user` | Add another managed Linux user on the server. |
+| `server status` | Show the shared-auth server health status. |
+| `client init <user@host>` | Initialize the local client and bootstrap the remote host. |
+| `client status` | Show the saved local client profile. |
+| `cs live` | Start a live session from the current directory and launch remote Claude. |
+| `cs add <dir>` | Register an extra directory to attach to future `cs live` sessions. |
+| `cs list` | Show the registered extra directories. |
+| `cs remove <dir>` | Remove a registered extra directory. |
+| `cs where` | Show the main and extra remote mount paths for the current live session. |
+| `cs status` | Show the client profile and local live sessions. |
+| `cs status --json` | Emit the current client profile, active session, and mount paths as JSON. |
+| `cs stop` | Stop the current live session and try to unmount it remotely. |
+| `tunnel ...` | Advanced low-level commands kept mainly for debugging and development. |
 
 Run any command with `--help` for flags.
+
+## Advanced / debugging: low-level tunnel commands
+
+These commands still exist, but most users should now prefer:
+
+```bash
+claude-share client init <user@host>
+cs live
+```
+
+The `tunnel ...` surface below is mainly for:
+
+- debugging
+- diagnosis
+- working on claude-share itself
+- validating low-level SSH / mount behavior
+
+For day-to-day use, the primary workflow should stay:
+
+```bash
+sudo claude-share server init
+claude-share client init <user@host>
+cs live
+```
+
+### Prerequisites
+
+- **Local machine**: OpenSSH client + server, plus a Bash-compatible shell
+  reachable from SSH login. This is the simplest path on macOS/Linux. On
+  Windows, use OpenSSH Server with a Bash-compatible environment such as
+  Git Bash or MSYS2.
+- **Server**: Linux with `sshfs` + FUSE available.
+- `claude-share` should be installed on both ends.
+
+### Minimal example
+
+Local:
+
+```bash
+claude-share tunnel serve \
+  --workspace /absolute/path/to/project \
+  --server user@example.com
+```
+
+Remote:
+
+```bash
+claude-share tunnel mount --session project-20260418-120000
+source ~/.claude-share/remote/project-20260418-120000/env.sh
+cd ~/.claude-share/mounts/project-20260418-120000
+claude
+```
+
+Helpers:
+
+```bash
+claude-share tunnel status --session project-20260418-120000
+claude-share tunnel umount --session project-20260418-120000
+```
+
+That is the entire low-level flow. If you do not explicitly need to debug the
+transport or mount layer, prefer:
+
+```bash
+claude-share client init <user@host>
+cs live
+```
+
+### Current limitations
+
+- The server side is Linux-only.
+- The published workspace is a **single directory tree** per session.
+- Command proxying covers common developer commands, not every possible binary.
+- When `tunnel serve` exits, the reverse tunnel closes and the uploaded key is
+  removed from the local machine's `authorized_keys`.
 
 ## Non-interactive mode
 

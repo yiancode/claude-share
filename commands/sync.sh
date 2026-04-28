@@ -10,6 +10,11 @@ cmd_sync() {
   bootstrap_shared_dir
   seed_shared_from_source_user
 
+  # Restore the source user's own symlinks (Claude's rename-based token
+  # refresh severs them; seed_shared_from_source_user already copied the
+  # fresh token into the shared file, so it's safe to re-link now).
+  link_user_to_shared "$SOURCE_USER"
+
   local u
   for u in "${MANAGED_USERS[@]}"; do
     if ! user_exists "$u"; then

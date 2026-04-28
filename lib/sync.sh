@@ -45,8 +45,12 @@ seed_shared_from_source_user() {
     fi
 
     if [[ -e "$abs_shared" ]]; then
-      # Already seeded; leave alone.
-      :
+      # Shared copy exists. If the source user's file is a real file (severed
+      # symlink after a Claude token refresh), it holds a fresher token —
+      # overwrite the shared copy so managed users get the new credentials.
+      if [[ -f "$abs_src" && ! -L "$abs_src" ]]; then
+        cp -a "$abs_src" "$abs_shared"
+      fi
     elif [[ -L "$abs_src" ]]; then
       # Source is already a symlink — most likely pointing here. Do nothing.
       :
